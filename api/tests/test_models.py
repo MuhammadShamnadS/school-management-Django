@@ -3,7 +3,7 @@ import pytest
 from django.db import IntegrityError
 from api.models import CustomUser, Teacher, Student
 
-pytestmark = pytest.mark.django_db  # every test hits the DB
+pytestmark = pytest.mark.django_db  
 
 def test_custom_user_str_representation():
     user = CustomUser.objects.create_user(
