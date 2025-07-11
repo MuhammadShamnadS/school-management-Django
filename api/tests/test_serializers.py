@@ -21,7 +21,7 @@ def test_user_serializer_creates_teacher_user():
     assert isinstance(user, CustomUser)
     assert user.role == "teacher"
     assert check_password("s3cret!", user.password)
-    assert "password" not in serializer.data  # write‑only
+    assert "password" not in serializer.data
 
 def test_teacher_serializer_creates_user_and_teacher():
     payload = {
