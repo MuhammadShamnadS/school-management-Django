@@ -14,7 +14,6 @@ def test_custom_user_str_representation():
     assert str(user) == "admin_user (admin)"
 
 def _create_teacher(username="teach_tim", employee_id="EMP100"):
-    """Tiny helper: returns (user, teacher)."""
     user = CustomUser.objects.create_user(
         username=username,
         password="p@ss",
@@ -44,7 +43,6 @@ def test_teacher_employee_id_unique_constraint():
         _create_teacher(username="teach_dup", employee_id="EMP200")
 
 def _create_student(username="stud_sue", roll="S001", teacher=None):
-    """Helper that returns (user, student)."""
     user = CustomUser.objects.create_user(
         username=username,
         password="pwd",
