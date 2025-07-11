@@ -24,6 +24,8 @@ class Teacher(models.Model):
         return f"{self.user.first_name} {self.user.last_name} - {self.subject_specialization}"
 
 class Student(models.Model):
+    class Meta:
+        ordering = ["id"] 
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
     phone = models.CharField(max_length=15)
     roll_number = models.CharField(max_length=20, unique=True)
