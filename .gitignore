@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Django
+*.log
+*.pot
+*.pyc
+*.sqlite3
+*.db
+*.db-journal
+*.json
+
+# Environment
+env/
+venv/
+ENV/
+.env
+
+# VSCode settings
+.vscode/
+
+# macOS system files
+.DS_Store
+
+# Migrations
+**/migrations/*.py
+!**/migrations/__init__.py
