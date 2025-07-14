@@ -60,6 +60,18 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'school_project.urls'
 
+# ── Email config (use real SMTP in prod) ─────────────────────────
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_HOST      = "smtp.gmail.com"
+EMAIL_PORT      = 587
+EMAIL_HOST_USER = "myapp@gmail.com"
+EMAIL_HOST_PASSWORD = "app‑password"      # ← app‑specific pwd / env var
+EMAIL_USE_TLS   = True
+
+DEFAULT_FROM_EMAIL = "School App <no‑reply@schoolapp.com>"
+FRONTEND_RESET_URL = "http://localhost:3000/reset-password"  # React route
+
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
