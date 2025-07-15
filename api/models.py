@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.db import migrations, models
+
 
 class CustomUser(AbstractUser):
     ROLE_CHOICES = (
@@ -23,6 +24,11 @@ class Teacher(models.Model):
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - {self.subject_specialization}"
 
+    def delete(self, *args, **kwargs):
+        user = self.user           # keep ref
+        super().delete(*args, **kwargs)
+        user.delete() 
+        
 class Student(models.Model):
     class Meta:
         ordering = ["id"] 
@@ -43,15 +49,46 @@ class Student(models.Model):
     def __str__(self):
         return f"{self.user.first_name} {self.user.last_name} - {self.roll_number}"
     
+
 class Exam(models.Model):
-    title = models.CharField(max_length=200)
-    created_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    assigned_teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='exams')
-    start_time = models.DateTimeField()
-    duration_minutes = models.IntegerField(default=5)
+    SCOPE_CHOICES = (
+        ("school", "School‑level"),   
+        ("class",  "Class‑level"),    
+    )
+
+    title             = models.CharField(max_length=200)
+    created_by        = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    assigned_teacher  = models.ForeignKey(Teacher, on_delete=models.CASCADE,related_name="exams",null=True, blank=True)
+    scope             = models.CharField(max_length=10, choices=SCOPE_CHOICES)
+    target_standard   = models.CharField(max_length=10, blank=True)  # e.g. "10"
+    target_class      = models.CharField(max_length=10, blank=True)  # e.g. "10‑A"
+    start_time        = models.DateTimeField()
+    duration_minutes  = models.IntegerField(default=5)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.scope == "school":
+            if self.assigned_teacher:
+                raise ValidationError("School‑level exam must have no assigned_teacher")
+            if not self.target_standard:
+                raise ValidationError("School‑level exam requires target_standard")
+        elif self.scope == "class":
+            if not self.assigned_teacher:
+                raise ValidationError("Class‑level exam must have assigned_teacher")
+            if not self.target_class:
+                raise ValidationError("Class‑level exam requires target_class")
+        else:
+            raise ValidationError("Invalid scope")
 
     def eligible_students(self):
-        return Student.objects.filter(teacher=self.assigned_teacher)
+        if self.scope == "school":
+            return Student.objects.filter(student_class__startswith=self.target_standard)
+        return Student.objects.filter(
+            assigned_teacher=self.assigned_teacher,
+            student_class=self.target_class,
+        )
+
     def __str__(self):
         return self.title
 
@@ -85,6 +122,6 @@ class ExamSubmission(models.Model):
         return f"{self.student} - {self.exam}"
 
 class Answer(models.Model):
-    submission = models.ForeignKey(ExamSubmission, on_delete=models.CASCADE, related_name='answers')
+    submission = models.ForeignKey(ExamSubmission, on_delete=models.CASCADE, related_name='answers', )
     question = models.ForeignKey(Question, on_delete=models.CASCADE)
     selected_option = models.IntegerField()
