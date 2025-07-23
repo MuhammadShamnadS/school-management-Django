@@ -1,4 +1,3 @@
-import re
 from .models import Exam
 from rest_framework import serializers
 from rest_framework import serializers
@@ -50,6 +49,7 @@ class BaseUserSerializer(serializers.ModelSerializer):
             instance.set_password(password)
         instance.save()
         return instance
+    
     
 class TeacherSerializer(serializers.ModelSerializer):
     user = BaseUserSerializer()
@@ -125,11 +125,13 @@ class QuestionCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
+
 class QuestionPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Question
         fields = ["id", "text", "option1", "option2", "option3", "option4"]
+
 
 class ExamMetaSerializer(serializers.ModelSerializer):
 
@@ -142,7 +144,6 @@ class ExamMetaSerializer(serializers.ModelSerializer):
             "created_by", "assigned_teacher",
         ]
         read_only_fields = ["id"]
-
 
 
 class ExamCreateSerializer(serializers.ModelSerializer):
@@ -210,7 +211,6 @@ class ExamCreateSerializer(serializers.ModelSerializer):
         )
 
 
-
 class AnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Answer
@@ -271,6 +271,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         if not CustomUser.objects.filter(email=value).exists():
             raise serializers.ValidationError("No user with this email.")
         return value
+    
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     uid           = serializers.CharField()
@@ -295,3 +296,16 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save()
         return user
+
+
+class ExamSubmissionResultSerializer(serializers.ModelSerializer):
+    exam_title = serializers.CharField(source="exam.title", read_only=True)
+    student_name = serializers.SerializerMethodField()
+
+    def get_student_name(self, obj):
+        return f"{obj.student.user.first_name} {obj.student.user.last_name}"
+
+    class Meta:
+        model = ExamSubmission
+        fields = ["id", "exam", "exam_title", "student", "student_name", "score", "submitted_at"]
+

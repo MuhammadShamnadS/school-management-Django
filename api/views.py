@@ -13,6 +13,7 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
+from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -28,6 +29,8 @@ from .serializers import (
     QuestionCreateSerializer,
     QuestionPublicSerializer,
     ExamSubmissionSerializer,
+    ExamSubmissionResultSerializer
+
 )
 
 
@@ -323,11 +326,30 @@ class ExamViewSet(viewsets.ModelViewSet):
 
 
 class ExamSubmissionViewSet(viewsets.ModelViewSet):
+
     serializer_class = ExamSubmissionSerializer
     permission_classes = [IsAuthenticated,IsStudent]
 
     def get_queryset(self):
         return ExamSubmission.objects.filter(student__user=self.request.user)
+
+    queryset = ExamSubmission.objects.all()
+    serializer_class = ExamSubmissionResultSerializer
+    permission_classes = [IsAuthenticated,IsStudent]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == "student":
+            return ExamSubmission.objects.filter(student__user=user)
+
+        elif user.role == "teacher":
+            teacher = getattr(user, "teacher", None)
+            return ExamSubmission.objects.filter(student__assigned_teacher=teacher)
+
+        elif user.role == "admin":
+            return ExamSubmission.objects.all()
+
+        return ExamSubmission.objects.none()
 
     def perform_create(self, serializer):
         try:
@@ -347,6 +369,14 @@ class ExamSubmissionViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError("Exam time is over.")
 
         serializer.save(student=student)
+
+    @action(detail=False, methods=["get"], url_path="check/(?P<exam_id>[^/.]+)")
+    def check_submission(self, request, exam_id=None):
+        student = request.user.student
+        submitted = ExamSubmission.objects.filter(student=student, exam_id=exam_id).exists()
+        return Response({"submitted": submitted})
+
+
 
 class QuestionViewSet(viewsets.ModelViewSet):
     queryset = Question.objects.select_related("exam__created_by", "exam__assigned_teacher")
@@ -453,3 +483,17 @@ class PasswordResetConfirmView(GenericAPIView):
         ser.is_valid(raise_exception=True)
         ser.save()
         return Response({"detail": "Password has been reset."}, status=200)
+
+
+class UserRoleView(APIView):
+    permission_classes = [IsAuthenticated] 
+
+    def get(self, request):
+        user = request.user
+        print(user)
+        return Response({
+            "username": user.username,
+            "email": user.email,
+            "role": getattr(user, 'role', None)  
+        })
+
