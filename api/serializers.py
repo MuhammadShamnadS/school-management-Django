@@ -50,7 +50,6 @@ class BaseUserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
     
-    
 class TeacherSerializer(serializers.ModelSerializer):
     user = BaseUserSerializer()
 
@@ -125,13 +124,11 @@ class QuestionCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
-
 class QuestionPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Question
         fields = ["id", "text", "option1", "option2", "option3", "option4"]
-
 
 class ExamMetaSerializer(serializers.ModelSerializer):
 
@@ -144,6 +141,7 @@ class ExamMetaSerializer(serializers.ModelSerializer):
             "created_by", "assigned_teacher",
         ]
         read_only_fields = ["id"]
+
 
 
 class ExamCreateSerializer(serializers.ModelSerializer):
@@ -211,6 +209,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
         )
 
 
+
 class AnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Answer
@@ -219,6 +218,10 @@ class AnswerSerializer(serializers.ModelSerializer):
 
 class AnswerResultSerializer(serializers.ModelSerializer):
     question_text  = serializers.CharField(source="question.text", read_only=True)
+    option1 = serializers.CharField(source="question.option1", read_only=True)
+    option2 = serializers.CharField(source="question.option2", read_only=True)
+    option3 = serializers.CharField(source="question.option3", read_only=True)
+    option4 = serializers.CharField(source="question.option4", read_only=True)
     correct_option = serializers.IntegerField(source="question.correct_option", read_only=True)
     is_correct     = serializers.SerializerMethodField()
 
@@ -229,6 +232,7 @@ class AnswerResultSerializer(serializers.ModelSerializer):
         model  = Answer
         fields = [
             "question", "question_text",
+             "option1", "option2", "option3", "option4",
             "selected_option", "correct_option",
             "is_correct",
         ]
@@ -236,16 +240,17 @@ class AnswerResultSerializer(serializers.ModelSerializer):
 
 class ExamSubmissionSerializer(serializers.ModelSerializer):
     answers = AnswerSerializer(many=True, write_only=True)
+    student_roll_number = serializers.CharField(source="student.roll_number", read_only=True)
+    
 
     class Meta:
         model  = ExamSubmission
-        fields = ["id", "exam", "answers", "score"]
-        read_only_fields = ["id", "score"]
+        fields = ["id", "exam", "answers", "score", "student"]
+        read_only_fields = ["id", "score" , "student"]
 
     def create(self, validated_data):
 
-        answers_data = validated_data.pop("answers")
-        student      = validated_data["student"]          
+        answers_data = validated_data.pop("answers")        
         submission = ExamSubmission.objects.create(**validated_data)
         answers = [
             Answer(
@@ -271,7 +276,6 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         if not CustomUser.objects.filter(email=value).exists():
             raise serializers.ValidationError("No user with this email.")
         return value
-    
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     uid           = serializers.CharField()
@@ -297,15 +301,27 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         user.save()
         return user
 
-
 class ExamSubmissionResultSerializer(serializers.ModelSerializer):
     exam_title = serializers.CharField(source="exam.title", read_only=True)
     student_name = serializers.SerializerMethodField()
+    student_roll_number = serializers.CharField(source="student.roll_number", read_only=True)
+    created_by = serializers.CharField(source="exam.created_by.username", read_only=True)
+    answers = AnswerResultSerializer(many=True, read_only=True)
 
     def get_student_name(self, obj):
         return f"{obj.student.user.first_name} {obj.student.user.last_name}"
 
     class Meta:
         model = ExamSubmission
-        fields = ["id", "exam", "exam_title", "student", "student_name", "score", "submitted_at"]
-
+        fields = ["id",
+            "exam",
+            "exam_title",
+            "created_by",
+            "student",
+            "student_name",
+            "student_roll_number",
+            "score",
+            "submitted_at",
+            "answers",
+            ]
+        

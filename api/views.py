@@ -16,6 +16,8 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 from api.permissions import IsAdmin, IsStudent, IsTeacher
 from .models import CustomUser, Teacher, Student, Exam, ExamSubmission, Question
@@ -30,7 +32,6 @@ from .serializers import (
     QuestionPublicSerializer,
     ExamSubmissionSerializer,
     ExamSubmissionResultSerializer
-
 )
 
 
@@ -257,8 +258,13 @@ class ExamViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = super().get_queryset()
+        scope = self.request.query_params.get("scope")
+        if scope in ["school", "class"]:
+            qs = qs.filter(scope=scope)
+
         if user.role == "admin":
             return qs
+
         if user.role == "teacher":
             cls = user.teacher.assigned_class
             std = cls.split("-")[0]
@@ -266,6 +272,7 @@ class ExamViewSet(viewsets.ModelViewSet):
                 Q(scope="class", assigned_teacher=user.teacher) |
                 Q(scope="school", target_standard=std)
             )
+
         if user.role == "student":
             stu = user.student
             std = stu.student_class.split("-")[0]
@@ -273,6 +280,7 @@ class ExamViewSet(viewsets.ModelViewSet):
                 Q(scope="school", target_standard=std) |
                 Q(scope="class", target_class=stu.student_class, assigned_teacher=stu.assigned_teacher)
             )
+
         return Exam.objects.none()
 
     def _owns_exam(self, exam):
@@ -323,19 +331,57 @@ class ExamViewSet(viewsets.ModelViewSet):
                 serializer.save(exam=exam)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    @action(detail=True, methods=["get"], url_path="student_scores")
+    def student_scores(self, request, pk=None):
+        exam = self.get_object()
+        if request.user.role != "admin":
+            raise PermissionDenied("Only admin can access this data.")
+
+        # Eligible students based on scope
+        eligible_students = exam.eligible_students().select_related("user")
+
+        # Get submissions
+        submissions = ExamSubmission.objects.filter(exam=exam).select_related("student__user")
+        submission_map = {s.student_id: s for s in submissions}
+
+        # Build full student list
+        results = []
+        for student in eligible_students:
+            sub = submission_map.get(student.id)
+            results.append({
+                "student_id": student.id,
+                "student_name": f"{student.user.first_name} {student.user.last_name}",
+                "student_roll_number": student.roll_number,
+                "submitted": bool(sub),
+                "score": sub.score if sub else None,
+                "submission_id": sub.id if sub else None,
+                "submitted_at": sub.submitted_at if sub else None,
+            })
+
+        return Response(results)
 
 
 class ExamSubmissionViewSet(viewsets.ModelViewSet):
-
-    serializer_class = ExamSubmissionSerializer
-    permission_classes = [IsAuthenticated,IsStudent]
-
-    def get_queryset(self):
-        return ExamSubmission.objects.filter(student__user=self.request.user)
-
     queryset = ExamSubmission.objects.all()
     serializer_class = ExamSubmissionResultSerializer
-    permission_classes = [IsAuthenticated,IsStudent]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ["exam", "student"]
+    ordering_fields = ["score", "submitted_at"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return ExamSubmissionSerializer
+        if self.action == "retrieve":
+            return ExamSubmissionResultSerializer  
+        return super().get_serializer_class()
+    
+    def get_permissions(self):
+        user = self.request.user
+        if self.action in ["create", "check_submission"]:  # only students can create/check
+            return [IsAuthenticated(), IsStudent()]
+        return [IsAuthenticated()]  # allow admin, teacher, and student to list/view
+
 
     def get_queryset(self):
         user = self.request.user
@@ -374,8 +420,12 @@ class ExamSubmissionViewSet(viewsets.ModelViewSet):
     def check_submission(self, request, exam_id=None):
         student = request.user.student
         submitted = ExamSubmission.objects.filter(student=student, exam_id=exam_id).exists()
-        return Response({"submitted": submitted})
-
+        submission = ExamSubmission.objects.filter(student=student, exam_id=exam_id).first()
+        return Response(
+            {"submitted": submitted,
+            "submission_id": submission.id if submission else None,
+            })
+        
 
 
 class QuestionViewSet(viewsets.ModelViewSet):
@@ -496,4 +546,3 @@ class UserRoleView(APIView):
             "email": user.email,
             "role": getattr(user, 'role', None)  
         })
-
