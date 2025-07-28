@@ -50,6 +50,7 @@ media/
 
 # Django migrations cache
 **/migrations/__pycache__/
+/home/muhammadshamnad/Downloads/school-management-Django-master/api/migrations
 
 ###############################################################################
 #  Testing / coverage                                                          #
