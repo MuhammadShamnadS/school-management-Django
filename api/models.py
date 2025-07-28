@@ -135,6 +135,7 @@ class ExamSubmission(models.Model):
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE)
     submitted_at = models.DateTimeField(auto_now_add=True)
     score = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True) 
 
     # ensure one submission per student for an exam
     class Meta:
