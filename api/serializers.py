@@ -245,7 +245,7 @@ class ExamSubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = ExamSubmission
-        fields = ["id", "exam", "answers", "score", "student"]
+        fields = ["id", "exam", "answers", "score", "student" , "student_roll_number"]
         read_only_fields = ["id", "score" , "student"]
 
     def create(self, validated_data):
