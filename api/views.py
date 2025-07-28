@@ -1,6 +1,6 @@
 import csv
 from io import TextIOWrapper
-from datetime import timedelta
+from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
@@ -123,6 +123,53 @@ class TeacherViewSet(viewsets.ModelViewSet):
                 ]
             )
         return response
+    
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import",
+        parser_classes=[MultiPartParser],
+        permission_classes=[IsAdmin],
+    )
+    def import_csv(self, request):
+        file = request.FILES.get("file")
+        if not file:
+            return Response({"detail": "CSV file is required."}, status=400)
+
+        decoded_file = TextIOWrapper(file, encoding="utf-8")
+        reader = csv.DictReader(decoded_file)
+
+        created, errors = [], []
+
+        for row_no, row in enumerate(reader, start=2):  # assuming header is row 1
+            try:
+                user_data = {
+                    "username": row["username"],
+                    "email": row["email"],
+                    "first_name": row["first_name"],
+                    "last_name": row.get("last_name", ""),
+                    "password": row["password"],
+                }
+
+                teacher_data = {
+                    "user": user_data,
+                    "phone": row["phone"],
+                    "subject_specialization": row["subject_specialization"],
+                    "employee_id": row["employee_id"],
+                    "status": row.get("status", "active"),
+                    "date_of_joining": row["date_of_joining"],
+                    "assigned_class": row["assigned_class"],
+                }
+
+                serializer = TeacherSerializer(data=teacher_data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                created.append(serializer.data)
+            except Exception as exc:
+                errors.append(f"Row {row_no}: {exc}")
+
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_400_BAD_REQUEST
+        return Response({"created": created, "errors": errors}, status=status_code)
 
 
 class StudentViewSet(viewsets.ModelViewSet):
@@ -301,6 +348,8 @@ class ExamViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Not allowed to delete this exam.")
         instance.delete()
 
+        
+
     @action(detail=True, methods=["get", "post"], url_path="questions")
     def questions(self, request, pk=None):
         exam = self.get_object()
@@ -335,17 +384,28 @@ class ExamViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="student_scores")
     def student_scores(self, request, pk=None):
         exam = self.get_object()
-        if request.user.role != "admin":
-            raise PermissionDenied("Only admin can access this data.")
+        user = request.user
 
-        # Eligible students based on scope
-        eligible_students = exam.eligible_students().select_related("user")
+        # Admin sees all eligible students
+        if user.role == "admin":
+            eligible_students = exam.eligible_students().select_related("user")
 
-        # Get submissions
-        submissions = ExamSubmission.objects.filter(exam=exam).select_related("student__user")
+        # Teacher sees only students assigned to them
+        elif user.role == "teacher":
+            teacher = user.teacher
+            eligible_students = exam.eligible_students().filter(assigned_teacher=teacher).select_related("user")
+
+        else:
+            raise PermissionDenied("Only admins or teachers can access this data.")
+
+        # Get all submissions for this exam from those students
+        submissions = ExamSubmission.objects.filter(
+            exam=exam,
+            student__in=eligible_students
+        ).select_related("student__user")
+
         submission_map = {s.student_id: s for s in submissions}
 
-        # Build full student list
         results = []
         for student in eligible_students:
             sub = submission_map.get(student.id)
@@ -360,6 +420,7 @@ class ExamViewSet(viewsets.ModelViewSet):
             })
 
         return Response(results)
+
 
 
 class ExamSubmissionViewSet(viewsets.ModelViewSet):
@@ -385,11 +446,16 @@ class ExamSubmissionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+
         if user.role == "student":
             return ExamSubmission.objects.filter(student__user=user)
 
         elif user.role == "teacher":
             teacher = getattr(user, "teacher", None)
+            if not teacher:
+                return ExamSubmission.objects.none()
+
+            # Only show submissions from students assigned to this teacher
             return ExamSubmission.objects.filter(student__assigned_teacher=teacher)
 
         elif user.role == "admin":
@@ -411,8 +477,11 @@ class ExamSubmissionViewSet(viewsets.ModelViewSet):
         if student not in exam.eligible_students():
             raise PermissionDenied("You are not allowed to take this exam.")
 
-        if now > exam.start_time + timedelta(minutes=exam.duration_minutes):
-            raise serializers.ValidationError("Exam time is over.")
+        end_of_day = timezone.make_aware(datetime.combine(exam.start_time.date(), datetime.max.time()))
+        if now < exam.start_time:
+            raise serializers.ValidationError("Exam has not started yet.")
+        if now > end_of_day:
+            raise serializers.ValidationError("Exam is expired.")
 
         serializer.save(student=student)
 
@@ -426,6 +495,53 @@ class ExamSubmissionViewSet(viewsets.ModelViewSet):
             "submission_id": submission.id if submission else None,
             })
         
+
+    @action(detail=False, methods=["post"], url_path="get-or-create")
+    def get_or_create_submission(self, request):
+        user = request.user
+        exam_id = request.data.get("exam")
+        if not exam_id:
+            return Response({"error": "Exam ID required"}, status=400)
+
+        try:
+            exam = Exam.objects.get(id=exam_id)
+            student = Student.objects.get(user=user)
+
+            now = timezone.now()
+
+            # 1. Check time window (start and same day)
+            if now < exam.start_time:
+                return Response({"error": "Exam has not started yet."}, status=400)
+            if now.date() > exam.start_time.date():
+                return Response({"error": "Exam expired."}, status=400)
+
+            # 2. Create or get submission
+            submission, created = ExamSubmission.objects.get_or_create(
+                student=student, exam=exam
+            )
+
+            # 3. If just created, set start time
+            if created:
+                submission.started_at = now
+                submission.save()
+            else:
+                # Check if time expired
+                if submission.started_at:
+                    elapsed = now - submission.started_at
+                    if elapsed.total_seconds() > exam.duration_minutes * 60:
+                        return Response({"error": "Your exam time has expired."}, status=403)
+
+            return Response({
+                "id": submission.id,
+                "started_at": submission.started_at,
+                "score": submission.score,
+            })
+
+        except Exam.DoesNotExist:
+            return Response({"error": "Exam not found"}, status=404)
+        except Student.DoesNotExist:
+            return Response({"error": "Student profile not found"}, status=404)
+
 
 
 class QuestionViewSet(viewsets.ModelViewSet):
